@@ -3,77 +3,70 @@
     <head>
         <!-- Meta -->
         <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
         <!-- Title and Icon -->
         <title>FarmVille</title>
         <link rel="shortcut icon" href="img/favicon.gif"/>
         <link rel="icon" type="image/gif" href="img/favicon.gif"/>
         <!-- CSS -->
-		<link rel="stylesheet" href="css/facebook.css"/>
+        <link rel="stylesheet" href="css/farm.css"/>
     </head>
-    <body class="ego_wide canvas center_fixed_width_app fbx UIPage_LoggedOut liquid hideBanner Locale_en_US" style="position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); overflow: auto;">
-        <center>
-            <img src="img/logo.jpg" style="width: 250px;"/>
-            <p>By the Farm Village team ~ {{version}}</p>
-        </center>
-		<div class="mvl ptm uiInterstitial canvas_error_page uiInterstitialLarge uiBoxWhite">
-			<!-- LOGIN CONTENT -->
-            <div class="phl ptm uiInterstitialContent" style="overflow: auto; display: inblock;">
-				<br>
-				<div style="margin-left:20px; font-size:13px; float: left;">
+    <body>
+        {% include "_farm_scene.html" %}
+
+        <main class="wrap">
+            <div class="card">
+                <div class="card-head">
+                    <img src="img/logo.jpg" alt="FarmVille"/>
+                    <p>By the Farm Village team ~ {{version}}</p>
+                </div>
+                <div class="card-body">
+                    <div class="account-bar">
+                        <span>Signed in as <b>{{email}}</b></span>
+                        <a href="/logout">Log out</a>
+                    </div>
+                    {% if error %}
+                    <p class="error" role="alert">{{error}}</p>
+                    {% endif %}
+
                     {% if saves_info %}
                     <form method="post">
-                        <!-- VILLAGE SELECTION -->
-                        <b>Select a Village</b>
-                        <br><br>
-                        <div style="float: left; margin-right: 4px;">
-                            <img src="img/56ee415db138d387034b663ca4b15eca.png" style="height: 40px; margin-top: -7px;">
-                        </div>
-                        <div style="float: left">
-                            <select id="UID" name="UID" style="height: 27px; min-width: 330px;" required>
-                                {% for save in saves_info %}
-                                <option value="{{save.uid}}" title="{{save.uid}}">{{save.name}} ({{save.xp}} xp)</option>
-                                {% endfor %}
+                        <fieldset class="villages">
+                            <legend>Choose your village</legend>
+                            {% for save in saves_info %}
+                            <label class="village" title="{{save.uid}}">
+                                <input type="radio" name="UID" value="{{save.uid}}" {{ "checked" if loop.first }} required>
+                                <span class="village-box">
+                                    <img src="img/56ee415db138d387034b663ca4b15eca.png" alt=""/>
+                                    <span>
+                                        <strong>{{save.name}}</strong>
+                                        <small>{{save.xp}} xp</small>
+                                    </span>
+                                </span>
+                            </label>
+                            {% endfor %}
+                        </fieldset>
+                        <div class="options">
+                            <select id="GAMEVERSION" name="GAMEVERSION" title="Game version" required>
+                                <option value="v855097-855094" title="v855097-855094">v855097-855094 (Latest)</option>
                             </select>
+                            <span>
+                                <label><input type="checkbox" id="RUFFLE" name="RUFFLE"> Ruffle (Experimental)</label>
+                                <span title="Ruffle is a Flash emulator, for when you have no Flash Player available. It doesn't fully support the FarmVille client yet." style="cursor: help;">&#9432;</span>
+                            </span>
                         </div>
-                        <br><br>
-                        <br>
-                        <!-- RELEASE SELECTION -->
-                        <b>Game Version</b>
-                        <br><br>
-                        <div style="overflow: auto; display: inblock;">
-                            <div style="float: left">
-                                <div style="float: left; margin-right: 4px;">
-                                    <img src="img/901ef319c6b41d44a5891368dfd80931.png" style="height: 38px; margin-top: -9px;">
-                                </div>
-                                <div style="float: left">
-                                    <select id="GAMEVERSION" name="GAMEVERSION" style="height: 24px;" required>
-                                        <option value="v855097-855094" title="v855097-855094">v855097-855094 (Latest)</option>
-                                    </select>
-                                </div>
-                                <br><br>
-                                <div style="clear: both;">
-                                    <label style="vertical-align: middle;">
-                                        <input type="checkbox" id="RUFFLE" name="RUFFLE" style="vertical-align: middle;">
-                                        Ruffle (Experimental)
-                                    </label>
-                                    <span title="Ruffle is a Flash emulator, for when you have no Flash Player available. It doesn't fully support the FarmVille client yet." style="cursor: help; vertical-align: middle;">&#9432;</span>
-                                </div>
-                            </div>
-                            <div style="float: right;">
-                                <button type="submit" style="font-size:14px; height: 25px">Log in</button>
-                            </div>
-                        </div>
+                        <button type="submit" class="btn">Play</button>
                     </form>
-                    <br>
-                    <!-- NEW VILLAGE -->
-                    <p style="font-size:13px; display: inline;">Or </p>
+                    <a class="btn btn-secondary btn-link" href="/new.html">Create a new village</a>
+                    {% else %}
+                    <div class="empty">
+                        <img src="img/56ee415db138d387034b663ca4b15eca.png" alt=""/>
+                        <p>You don't have a village yet.</p>
+                    </div>
+                    <a class="btn btn-link" href="/new.html">Create my first village</a>
                     {% endif %}
-                    <p style="font-size:13px; display: inline;">
-                        <b><a href="/new.html">Create a new Village</a></b>
-                    </p>
-                    <br><br>
                 </div>
             </div>
-        </div>
+        </main>
     </body>
 </html>

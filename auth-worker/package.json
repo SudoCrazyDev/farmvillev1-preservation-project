@@ -1,0 +1,16 @@
+{
+  "name": "farmvillage-auth",
+  "version": "0.1.0",
+  "description": "Account service for the FarmVille server: signup, login and village ownership in Cloudflare D1, gated by Turnstile.",
+  "private": true,
+  "license": "GPL-3.0",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "migrate:local": "wrangler d1 migrations apply farmvillage-auth --local",
+    "migrate:remote": "wrangler d1 migrations apply farmvillage-auth --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.157.0"
+  }
+}

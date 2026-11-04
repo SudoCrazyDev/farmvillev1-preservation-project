@@ -8,6 +8,10 @@ services:
     environment:
       # URL the Flash client uses to reach the server. Change it when playing from another machine.
       PUBLIC_URL: http://127.0.0.1:5500
+    # SECRET_KEY, AUTH_API_URL, AUTH_API_KEY, TURNSTILE_SITEKEY - see .env.example
+    env_file:
+      - path: .env
+        required: false
     volumes:
       # Saves, cache and game assets, kept in ./data next to this file.
       # WARC files placed in ./data/tmp/warc beforehand are used instead of downloading them.

@@ -19,3 +19,5 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 client/
+.env
+auth-worker/

@@ -86,10 +86,10 @@ def load_static_villages() -> None:
 
 # New village
 
-def new_village() -> str:
+def new_village(UID: str = None) -> str:
     ts_now = timestamp_now()
-    # Generate UID
-    UID: str = str(uuid.uuid4())
+    # Generate UID (or use the one already registered to the player's account)
+    UID: str = UID or str(uuid.uuid4())
     assert UID not in all_uids()
     # Copy init
     village = copy.deepcopy(__initial_village)

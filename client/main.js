@@ -1,7 +1,7 @@
 // FarmVille desktop client.
 // Electron 11 is the last Electron able to load the Pepper (PPAPI) Flash plugin, so this
 // client is pinned to it. Its Chromium is old and unpatched: the window is locked to the
-// configured game server and every request to any other host is blocked.
+// configured game server and every request to any other host (except Turnstile) is blocked.
 
 const { app, BrowserWindow, Menu, session, dialog } = require("electron");
 const fs = require("fs");
@@ -51,11 +51,23 @@ function isServerUrl(url) {
     }
 }
 
+// Turnstile (the login/signup bot check) runs from Cloudflare in an iframe on the server's pages.
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
+function isAllowedRequest(url) {
+    if (isServerUrl(url)) return true;
+    try {
+        return new URL(url).origin === TURNSTILE_ORIGIN;
+    } catch {
+        return false;
+    }
+}
+
 function lockToServer(win) {
-    // Only http(s)/ws(s) traffic to the game server goes out. data:, blob:, devtools etc. pass.
+    // Only http(s)/ws(s) traffic to the game server (and Turnstile) goes out. data:, blob:, devtools etc. pass.
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
         const remote = /^(https?|wss?):/i.test(details.url);
-        const blocked = remote && !isServerUrl(details.url);
+        const blocked = remote && !isAllowedRequest(details.url);
         if (blocked) console.log("[blocked]", details.url);
         callback({ cancel: blocked });
     });

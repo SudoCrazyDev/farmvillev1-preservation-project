@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "farmvillage-auth",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  // Only the game server calls this Worker (with AUTH_API_KEY); players never reach it directly.
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "farmvillage-auth",
+      "database_id": "1f2a65cb-2b46-48e3-b0c7-037b7df206b1",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Hostnames the login/signup pages are served from. Never include localhost in production.
+    "TURNSTILE_HOSTNAMES": "localhost,127.0.0.1",
+    "MAX_VILLAGES_PER_USER": "3"
+  }
+  // Secrets (wrangler secret put / .dev.vars): AUTH_API_KEY, TURNSTILE_SECRET
+}

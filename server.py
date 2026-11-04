@@ -45,8 +45,10 @@ print (" [+] Loading static villages...")
 load_static_villages()
 
 print (" [+] Loading server...")
+import uuid
 import requests
-from flask import Flask, render_template, send_from_directory, request, Response, redirect, session, jsonify
+import auth
+from flask import Flask, render_template, send_from_directory, request, Response, redirect, session, jsonify, flash, get_flashed_messages
 from flask.debughelpers import attach_enctype_error_multidict
 from werkzeug.utils import safe_join
 from pyamf import remoting
@@ -64,31 +66,97 @@ PUBLIC_URL = (_args.public_url or f"http://{BIND_HOST}:{BIND_PORT}").rstrip("/")
 
 app: Flask = Flask(__name__)
 
+# A fixed SECRET_KEY keeps players logged in across server restarts.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    print(" [!] SECRET_KEY is not set: every restart will log all players out.")
+app.config.update(
+    SECRET_KEY=SECRET_KEY or os.urandom(24),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=PUBLIC_URL.startswith("https://"),
+    MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+)
+
 print (" [+] Configuring server routes...")
+
+# Accounts
+
+def _logged_in_user():
+    return session.get('user_id')
+
+def _owned_saves_info(user_id) -> list:
+    owned = set(auth.villages(user_id))
+    return [info for info in all_saves_info() if info["uid"] in owned]
+
+@app.route("/login", methods=['GET', 'POST'])
+def account_login():
+    return _account_form("login", auth.login)
+
+@app.route("/signup", methods=['GET', 'POST'])
+def account_signup():
+    return _account_form("signup", auth.signup)
+
+def _account_form(mode: str, action):
+    if _logged_in_user():
+        return redirect("/")
+    error = None
+    email = ""
+    if request.method == 'POST':
+        email = request.form.get("email", "")
+        try:
+            user = action(email, request.form.get("password", ""),
+                          request.form.get("cf-turnstile-response", ""), request.remote_addr)
+        except auth.AuthError as e:
+            error = e.message
+        else:
+            session.clear()
+            session['user_id'] = user["id"]
+            session['email'] = user["email"]
+            print(f"[ACCOUNT] {mode}: user {user['id']}")
+            return redirect("/")
+    return render_template("account.html", mode=mode, error=error, email=email,
+                           sitekey=auth.TURNSTILE_SITEKEY, version=version_name)
+
+@app.route("/logout", methods=['GET'])
+def account_logout():
+    session.clear()
+    return redirect("/login")
 
 # Templates
 
 @app.route("/", methods=['GET', 'POST'])
 def login():
-    # Log out previous session
+    user_id = _logged_in_user()
+    if not user_id:
+        return redirect("/login")
+    # Leave the previously played village
     session.pop('UID', default=None)
     # Reload saves (not static villages nor quests). Allows saves modification without server reset
     load_saves()
-    # If logging in, set session UID, and go to play
+    try:
+        saves_info = _owned_saves_info(user_id)
+    except auth.AuthError as e:
+        return render_template("login.html", saves_info=[], error=e.message,
+                               email=session.get('email'), version=version_name)
+    # If picking a village, set session UID, and go to play
     if request.method == 'POST':
-        session['UID'] = request.form['UID']
-        print("[LOGIN] UID:", request.form['UID'])
+        UID = request.form.get('UID', "")
+        if UID not in {info["uid"] for info in saves_info}:
+            return redirect("/")
+        session['UID'] = UID
+        print("[LOGIN] UID:", UID)
         # Ruffle checkbox: only sent when checked
         if 'RUFFLE' in request.form:
             return redirect("/ruffle.html")
         return redirect("/play.html")
-    # Login page
-    if request.method == 'GET':
-        saves_info = all_saves_info()
-        return render_template("login.html",
-            saves_info=saves_info,
-            version=version_name
-        )
+    # Village selection page
+    return render_template("login.html",
+        saves_info=saves_info,
+        error=" ".join(get_flashed_messages()) or None,
+        email=session.get('email'),
+        version=version_name
+    )
 
 @app.route("/play.html", methods=['GET'])
 def play():
@@ -148,7 +216,17 @@ def health():
 
 @app.route("/new.html")
 def new():
-    session['UID'] = new_village()
+    user_id = _logged_in_user()
+    if not user_id:
+        return redirect("/login")
+    # Register the village to the account first: the Worker enforces the per-account limit.
+    UID = str(uuid.uuid4())
+    try:
+        auth.add_village(user_id, UID)
+    except auth.AuthError as e:
+        flash(e.message)
+        return redirect("/")
+    session['UID'] = new_village(UID)
     return redirect("play.html")
 
 @app.route("/img/<path:path>", methods=['GET'])
@@ -710,7 +788,6 @@ def sn_app_url_gifts():
 print (" [+] Running server...")
 
 if __name__ == '__main__':
-    app.secret_key = os.urandom(24)
     app.root_path = BASE_DIR
     app.template_folder = TEMPLATES_DIR
     app.static_folder = TEMPLATES_DIR
