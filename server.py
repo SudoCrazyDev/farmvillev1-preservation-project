@@ -27,7 +27,7 @@ from game_settings import load_game_settings
 load_game_settings()
 
 print(" [+] Loading items...")
-from items import load_items
+from items import load_items, PATCHED_ITEMS_AMF
 load_items()
 
 print(" [+] Loading quests...")
@@ -281,6 +281,11 @@ def embeds(path):
 def assethash_path(path):
     return send_from_directory(ASSETHASH_DIR, path, mimetype="application/x-amf")
 
+@app.route("/xml/gz/v855038/items_opt.amf", methods=['GET'])
+def patched_items_opt():
+    # items_opt.amf with faster early-game seeds (see items.py, FAST_GROW_*)
+    return send_from_directory(os.path.dirname(PATCHED_ITEMS_AMF), os.path.basename(PATCHED_ITEMS_AMF), mimetype='text/xml')
+
 @app.route("/xml/<path:path>", methods=['GET'])
 def xml(path):
     return send_from_directory(XML_DIR, path, mimetype='text/xml')
@@ -317,7 +322,9 @@ def stub_masterysign_items():
 
 @app.route("/report_exception.php", methods=['POST'])
 def report_exception():
-    print("[!] Exception:", request.data.decode("utf-8"))
+    # The client posts its report form-encoded, which Flask parses into request.form and leaves
+    # request.data empty - so log both.
+    print("[!] Exception:", request.data.decode("utf-8"), request.form.to_dict(flat=False))
     return "{}"
 
 @app.route("/record_stats.php", methods=['POST'])
@@ -760,6 +767,8 @@ def flashservices_gateway():
         # The response object is the one already in resps, so this reaches the client. It runs here rather
         # than where the dict is built so that the quest list reflects whatever the command just did.
         response["metadata"]["QuestComponent"] = commands.quest_component(UID, reqq.functionName)
+        # Crop mastery goals/goalCounters the command queued (commands.py, "Crop mastery")
+        response.update(commands.take_goal_updates(UID))
 
     assert len(resps) == len(reqs)
 

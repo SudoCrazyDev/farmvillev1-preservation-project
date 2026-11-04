@@ -23,32 +23,24 @@ body {
 }
 
 /* --- scene --- */
-.scene { position: fixed; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; z-index: 0; }
-.sun {
-    position: absolute; top: 7vh; right: 12vw; width: 110px; height: 110px; border-radius: 50%;
-    background: radial-gradient(circle, #fff7b0 0%, #ffe066 55%, rgba(255, 224, 102, 0) 72%);
+.scene { position: fixed; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; z-index: 0; background: #45a043; }
+.scene-photo {
+    position: absolute; top: -2%; right: -2%; bottom: -2%; left: -2%;
+    background: url("../img/farm_bg.jpg") center 30% / cover no-repeat;
+    animation: pan 60s ease-in-out infinite alternate;
 }
-.cloud {
-    position: absolute; left: -260px; width: 200px; height: 60px; border-radius: 60px;
-    background: #fff; opacity: .92;
-    animation: drift linear infinite;
+/* soft vignette so the card stays readable over the busy crops */
+.scene-shade {
+    position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+    background: radial-gradient(ellipse at center, rgba(20, 40, 10, .05) 0%, rgba(20, 40, 10, .25) 60%, rgba(20, 40, 10, .5) 100%);
 }
-.cloud::before, .cloud::after { content: ""; position: absolute; background: #fff; border-radius: 50%; }
-.cloud::before { width: 90px; height: 90px; top: -45px; left: 30px; }
-.cloud::after { width: 70px; height: 70px; top: -30px; left: 100px; }
-.c1 { top: 8vh;  transform: scale(1.1); animation-duration: 70s; animation-delay: -10s; }
-.c2 { top: 20vh; transform: scale(.7);  animation-duration: 95s; animation-delay: -60s; opacity: .8; }
-.c3 { top: 4vh;  transform: scale(.85); animation-duration: 80s; animation-delay: -40s; }
-.c4 { top: 28vh; transform: scale(1.3); animation-duration: 110s; animation-delay: -85s; opacity: .85; }
-.c5 { top: 14vh; transform: scale(.6);  animation-duration: 60s; animation-delay: -25s; }
-@keyframes drift { from { left: -260px; } to { left: 110vw; } }
-.land { position: absolute; left: 0; bottom: 0; width: 100%; height: 46vh; min-height: 240px; }
+@keyframes pan { from { transform: scale(1.04) translate(-1%, 0); } to { transform: scale(1.08) translate(1%, -1%); } }
 
 /* --- card --- */
 .wrap {
     position: relative; z-index: 1; min-height: 100%;
     display: flex; align-items: center; justify-content: center;
-    padding: 24px 16px 18vh;
+    padding: 24px 16px;
 }
 .card {
     width: 100%; max-width: 400px;

@@ -142,12 +142,14 @@ def migrate_loaded_save(save: dict):
         # client ref.: src/Classes/Mastery.as (currentLevel, MASTERED_LEVEL = 2), src/Classes/Player.as (addMastery)
         # mastery[code] is a 0-based mastery star level (so 1 = the second star) and masteryCounters[code] a
         # harvest count; both only ever move through a transaction response's goals/goalCounters
-        # (TFarmTransaction.handleGoalResponse), which the server does not send yet. villages/initial.json
+        # (TFarmTransaction.handleGoalResponse; commands.py "Crop mastery" sends them on harvest). villages/initial.json
         # used to seed every crop with 1, handing new farms 51 level-2 masteries - an all-ones map is that
         # seed and nothing else, since no server code has ever written to either field.
+        # Harvests now write real counts, and a player's first harvests also look all-ones ({"akh": 1}), so
+        # only a map the size of that seed (51 crops) is taken for it.
         for _mastery_key in ("mastery", "masteryCounters"):
             _seeded = player.get(_mastery_key)
-            if isinstance(_seeded, dict) and _seeded and set(_seeded.values()) == {1}:
+            if isinstance(_seeded, dict) and len(_seeded) >= 51 and set(_seeded.values()) == {1}:
                 _changed = True
                 player[_mastery_key] = {}
                 print(f"[!] Cleared seeded player.{_mastery_key}")
@@ -282,6 +284,29 @@ def migrate_loaded_save(save: dict):
         if _fix_storage:
             _changed = True
             print("[!] Fixed storage format for {} world object(s)".format(_fix_storage))
+
+        # client ref.: src/Classes/storage/BaseStorageSlot.as (onUseClick), src/Classes/ZItem/SeedItem.as (onUse)
+        # The barn shows a "Use" button for every item, but a seed's onUse only does anything in the art
+        # upload sandbox (it starts GMMarketPlant there and nothing at all otherwise), so a seed in the
+        # barn can never come out again. villages/initial.json used to put 2 strawberry seeds (SB) in
+        # every new farm's barn. Seeds stored that way are swapped for the coins they cost in the market.
+        from items import get_item_by_code
+        _refund = 0
+        _removed = []
+        for sid, group in storage.items():
+            for itemCode in list(group.keys()):
+                item = get_item_by_code(itemCode)
+                if item is None or item.get("type") != "seed":
+                    continue
+                quantity = int(group[itemCode][0] or 0)
+                _refund += quantity * int(float(item.get("cost") or 0))
+                _removed.append(f"{quantity}x {item['name']}")
+                del group[itemCode]
+        if _removed:
+            _changed = True
+            if _refund:
+                engine.apply_coins_diff(save, _refund)
+            print("[!] Removed unusable seeds from storage ({}), refunded {} coins".format(", ".join(_removed), _refund))
 
         # save["version"] = "0.02a"
         # _changed = True

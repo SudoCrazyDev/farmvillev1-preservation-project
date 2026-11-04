@@ -138,7 +138,21 @@ def post_init_user(UID: str) -> dict:
         "marketView": None,
         "marketViewCraftingSkills": None,
         "avatarState": avatar_state(UID),
-        "breedingState": None,
+        # client ref.: FarmGame.swf Plot.onHarvestComplete, BreedingState.initBreedingStateFromInitUser
+        # Harvesting any hybrid seed (isHybrid, e.g. mitsuba) reads
+        # player.breedingState.getBreedingFeatureState("greenhousebuildable_finished").pvpStat with no null
+        # check, so without a greenhouse entry here every hybrid harvest throws Error #1009 in the client's
+        # transaction callback. An empty, never-used greenhouse state is enough; pvpStat only names a
+        # client-side action counter.
+        "breedingState": [{
+            "featureName": "greenhousebuildable_finished",
+            "unlockStates": {},
+            "genealogy": [],
+            "upgradeUnlockedTrays": {},
+            "breedingDuration": 0,
+            "pvpStat": "greenhouse_hybrid_harvests",
+            "trays": {},
+        }],
         "w2wState": None,
         "bestSellers": None,
         # client ref.: src/Transactions/TPostInit.as (setPreviouslyCompletedQuests) - memStoreIds, not names
@@ -445,6 +459,7 @@ def world_perform_action(UID: str, actionName: str, m_save: dict, params: list) 
             print(" * Applying fertilized harvest XP")
             engine.apply_xp_increment(save, get_farming_int("fertilizeHarvestXpGain", 1))
         quests.record_action(save, "harvestByCode", item_data["code"])
+        _record_mastery_harvest(UID, save, item_data)
         # Replace the object (probably a Plow) with the new one (usually with status "fallow")
         engine.world_update_or_add_object(session(UID)["world"]["objectsArray"], m_save)
 
@@ -463,6 +478,62 @@ def world_perform_action(UID: str, actionName: str, m_save: dict, params: list) 
         neighbor_act(UID, params[0]["hostId"], params[0]["actionType"], m_save)
 
     return object_id
+
+# Crop mastery
+
+# client ref.: FarmGame.swf TFarmTransaction.handleGoalResponse / onAmfCompleteSteps, Player.addMastery,
+#              Mastery.getCurrentCount / currentLevel
+# The client never counts harvests itself. Its mastery state is player.masteryCounters[seedCode] (harvests so
+# far) and player.mastery[seedCode] (0-based index into the seed's masteryLevel list of the last star
+# reached), and both only change when a transaction response carries them, at the response's top level
+# (the same object worldTime is read from):
+#   goalCounters: [{"type": "Mastery", "code": seedCode, "count": total}]   -> masteryCounters[code] = total
+#   goals:        [{"type": "Mastery", "code": seedCode, "difficulty": i, "link": ...}]
+#                 -> Player.addMastery: sets mastery[code], shows the level-up window and itself adds that
+#                    level's xp and coins to the player
+# So the server keeps the same counters in the save, pays the same level rewards so a reload agrees with
+# what the client showed, and queues both lists for the response (take_goal_updates). The final level's
+# "gift" (the mastery sign) is not granted.
+GOAL_TYPE_MASTERY = "Mastery"
+
+_pending_goal_updates: dict = {}
+
+def _record_mastery_harvest(UID: str, save: dict, item_data: dict) -> None:
+    if item_data.get("type") != "seed" or item_data.get("mastery") != "true":
+        return
+    levels = item_data.get("masteryLevel")
+    if isinstance(levels, dict):
+        levels = [levels]
+    if not levels:
+        return
+    code = item_data["code"]
+    player = save["userInfo"]["player"]
+    if not isinstance(player.get("masteryCounters"), dict):
+        player["masteryCounters"] = {}
+    if not isinstance(player.get("mastery"), dict):
+        player["mastery"] = {}
+    counters = player["masteryCounters"]
+    mastery = player["mastery"]
+
+    count = int(counters.get(code, 0)) + int(item_data.get("masteryYield") or 1)
+    counters[code] = count
+    pending = _pending_goal_updates.setdefault(UID, {"goals": [], "goalCounters": []})
+    pending["goalCounters"].append({"type": GOAL_TYPE_MASTERY, "code": code, "count": count})
+
+    current = int(mastery[code]) if code in mastery else -1
+    reached = max((i for i, level in enumerate(levels) if count >= int(level["count"])), default=-1)
+    for i in range(current + 1, reached + 1):
+        level = levels[i]
+        print(" * Mastery {} level {} reached ({} harvests)".format(item_data["name"], i, count))
+        engine.apply_coins_diff(save, int(level.get("coins") or 0))
+        engine.apply_xp_increment(save, int(level.get("xp") or 0))
+        mastery[code] = i
+        pending["goals"].append({"type": GOAL_TYPE_MASTERY, "code": code, "difficulty": i, "link": ""})
+
+def take_goal_updates(UID: str) -> dict:
+    # Returns and clears the goal lists queued since the last call, as response fields ({} when none).
+    pending = _pending_goal_updates.pop(UID, None) or {}
+    return {key: value for key, value in pending.items() if value}
 
 # Equipment (tractor / seeder / harvester / combine)
 
@@ -505,19 +576,22 @@ def equipment_use(UID: str, action: str, plots, item_name: str, metadata: dict):
                 applies = ("place",)
             for name in passes:
                 passes[name].append(_equipment_apply(UID, name, entry, item_name) if name in applies else None)
-        return {name: {"data": [_equipment_envelope(d, metadata) for d in datas]} for name, datas in passes.items()}
+        return {name: {"data": [_equipment_envelope(UID, d, metadata) for d in datas]} for name, datas in passes.items()}
 
-    return [_equipment_envelope(_equipment_apply(UID, action, entry, item_name), metadata) for entry in entries]
+    return [_equipment_envelope(UID, _equipment_apply(UID, action, entry, item_name), metadata) for entry in entries]
 
 # client ref.: src/Transactions/TEquipmentAction.as (onComplete), src/Engine/Transactions/Transaction.as (onAmfComplete)
 # The client unpacks the response by feeding every element back through its own onAmfComplete, so each
 # element has to look like a whole gateway response: one without an errorType is read as an error and
 # raises a fault instead. They all share the response's metadata dict because the last element read is
 # what ends up as the transaction's rawResult - which is where QuestManager looks for the QuestComponent.
-def _equipment_envelope(data: dict, metadata: dict) -> dict:
+# Each element also goes through handleGoalResponse, so harvest mastery updates ride on the first non-null
+# element built after them (for a combine every pass runs before the envelopes are built, so they all land
+# on the first one - the client applies them the same either way).
+def _equipment_envelope(UID: str, data: dict, metadata: dict) -> dict:
     if data is None:
         return None
-    return {"errorType": 0, "errorData": None, "metadata": metadata, "data": data}
+    return {"errorType": 0, "errorData": None, "metadata": metadata, "data": data, **take_goal_updates(UID)}
 
 def _equipment_plot_object(save: dict, entry: dict) -> dict:
     world_objects = save["world"]["objectsArray"]
