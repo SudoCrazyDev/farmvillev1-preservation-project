@@ -199,8 +199,8 @@ def apply_item_yield_reward(save: dict, item_data: dict) -> None:
 def apply_turbo_chargers_diff(save: dict, const: int) -> None:
     if const == 0:
         return
-    energy_manager = save["userInfo"]["player"]["energyManager"]
-    energy_manager["turboChargers"] = max(0, energy_manager["turboChargers"] + const)
+    energy_manager = save["userInfo"]["player"].setdefault("energyManager", {})
+    energy_manager["turboChargers"] = max(0, int(energy_manager.get("turboChargers") or 0) + const)
 
 # Feature Options
 

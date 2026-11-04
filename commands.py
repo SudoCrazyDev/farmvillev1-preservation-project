@@ -5,7 +5,7 @@ from player import session, village, neighbor_uids, neighbor_metadata, save_sess
 from engine import timestamp_now
 import engine
 from items import get_item_by_name
-from game_settings import level_to_xp, get_farming_int
+from game_settings import level_to_xp, get_farming_int, get_farming_number, get_game_settings
 import storage
 import quests
 import avatar
@@ -319,6 +319,20 @@ def buy_avatar_item(UID: str, item_id: str) -> None:
         save["avatarState"]["unlocked"].append(item_data["itemId"])
     return
 
+# client ref.: src/Classes/FarmItem.as (untunedSellPrice): the item's own sellPrice, or
+# floor(cost * sellBackRatio) when it has none (barn: 40000 * 0.05 = 2000).
+# Items with a world currency (marketIsWorldCurrency) pay in that currency, not coins; none of those
+# are tracked server-side, so they pay nothing here.
+def _item_sell_price(item_data: dict) -> int:
+    if item_data.get("marketIsWorldCurrency") in (True, "true"):
+        return 0
+    try:
+        if item_data.get("sellPrice") is not None and int(float(item_data["sellPrice"])) >= 0:
+            return int(float(item_data["sellPrice"]))
+        return int(math.floor(float(item_data.get("cost") or 0) * get_farming_number("sellBackRatio", 0.05)))
+    except (TypeError, ValueError):
+        return 0
+
 def world_perform_action(UID: str, actionName: str, m_save: dict, params: list) -> int:
     save = session(UID)
     object_id = m_save["id"]
@@ -463,6 +477,17 @@ def world_perform_action(UID: str, actionName: str, m_save: dict, params: list) 
         # Replace the object (probably a Plow) with the new one (usually with status "fallow")
         engine.world_update_or_add_object(session(UID)["world"]["objectsArray"], m_save)
 
+    elif actionName == 'sell':
+        # client ref.: src/Transactions/TSell.as, src/Classes/MapResource.as (executeSell),
+        # src/Classes/StorageBuilding.as (getSellPrices). Without this branch the client paid itself and
+        # removed the object, but the save kept it, so a sold barn was back on the next login.
+        item_data = get_item_by_name(m_save.get("itemName")) or {}
+        price = _item_sell_price(item_data)
+        if price:
+            engine.apply_coins_diff(save, price)
+        print(" * Sold {} for {} coins".format(m_save.get("itemName"), price))
+        engine.world_remove_object(session(UID)["world"]["objectsArray"], object_id)
+
     elif actionName == 'move':
         engine.world_replace_object(session(UID)["world"]["objectsArray"], m_save)
 
@@ -476,6 +501,12 @@ def world_perform_action(UID: str, actionName: str, m_save: dict, params: list) 
     elif actionName == 'neighborAct':
         # client ref.: src/Transactions/NeighborActions/TBaseNeighborAction.as (perform)
         neighbor_act(UID, params[0]["hostId"], params[0]["actionType"], m_save)
+
+    elif actionName == 'getStorageInfo':
+        pass # sent for the barn on every load; nothing to store and the {id} reply is all the client reads
+
+    else:
+        print(" * Warning: unhandled world action '{}' on {} (id {})".format(actionName, m_save.get("itemName"), object_id))
 
     return object_id
 
@@ -550,12 +581,22 @@ def take_goal_updates(UID: str) -> dict:
 # recovered client ever refills Global.player.energy - that was the original server's job and none of it
 # survives - so a server that charged fuel would strand the player at zero. The single-plot path ignores
 # the energyCost it *is* sent for the same reason.
-def equipment_use(UID: str, action: str, plots, item_name: str, metadata: dict):
+def equipment_use(UID: str, action: str, equipment: dict, plots, item_name: str, metadata: dict):
     save = session(UID)
     # The bundle is keyed by the plot's index in the vehicle's sweep and only holds the plots the action
     # succeeded on, so the keys can be sparse - sort them back into sweep order, which is the order
     # TEquipmentAction.onComplete walks the response in.
     entries = [plots[key] for key in sorted(plots.keys(), key=int)] if isinstance(plots, dict) else list(plots)
+
+    # client ref.: src/Transactions/TEquipmentAction.as (iinit)
+    # A Turbo pass (GMTractorPlowAll, GMSeederAll, GMHarvesterAll, GMCombineAll: the "all plots" modes the
+    # driving HUD's Turbo button switches to) costs one turbo charger, taken client-side when the bundle
+    # holds more plots than the vehicle covers in one ordinary pass. Nothing in the call says it was a
+    # turbo pass, so the same test is made here.
+    action_size = _equipment_action_size((equipment or {}).get("key"))
+    if action_size and len(entries) > action_size:
+        print(" * Turbo pass: {} plots (vehicle covers {}), 1 turbo charger used".format(len(entries), action_size))
+        engine.apply_turbo_chargers_diff(save, -1)
 
     if action == "combine":
         # client ref.: src/AvatarMode/AMMultiPlotAction.as (multiCombine)
@@ -579,6 +620,63 @@ def equipment_use(UID: str, action: str, plots, item_name: str, metadata: dict):
         return {name: {"data": [_equipment_envelope(UID, d, metadata) for d in datas]} for name, datas in passes.items()}
 
     return [_equipment_envelope(UID, _equipment_apply(UID, action, entry, item_name), metadata) for entry in entries]
+
+# client ref.: src/Classes/EquipmentSettingsManager.as (getActionSizeByPartCount, getLevelByPartCount)
+# The vehicle's key is "<item code>:<parts installed>". Its plots-per-pass is the actionSizeX * actionSizeY of
+# the highest gameSettings <equipmentData> level whose partsNeeded it has reached, in the <equipment> group
+# listing its code (or the "default" group). A level can offer several patterns of its own size; the
+# largest is used, so an ordinary pass is never mistaken for a turbo one. Returns None when unknown.
+def _equipment_action_size(key) -> int:
+    try:
+        code, parts = str(key).rsplit(":", 1)
+        parts = int(float(parts))
+    except (ValueError, TypeError):
+        return None
+    groups = (get_game_settings().get("equipmentData") or {}).get("equipment") or []
+    if isinstance(groups, dict):
+        groups = [groups]
+    def as_list(v):
+        return v if isinstance(v, list) else ([] if v is None else [v])
+    chosen = None
+    for group in groups:
+        codes = as_list((group.get("items") or {}).get("code"))
+        if code in codes:
+            chosen = group
+            break
+        if "default" in codes and chosen is None:
+            chosen = group
+    if chosen is None:
+        return None
+    best = None
+    for level in as_list((chosen.get("levels") or {}).get("level")):
+        if int(level.get("@partsNeeded", 0)) > parts:
+            continue
+        sizes = [level] + as_list((level.get("patterns") or {}).get("pattern"))
+        area = max(int(s.get("@actionSizeX", 0)) * int(s.get("@actionSizeY", 0)) for s in sizes)
+        if best is None or int(level.get("@partsNeeded", 0)) >= best[0]:
+            best = (int(level.get("@partsNeeded", 0)), area)
+    return best[1] if best and best[1] > 0 else None
+
+# client ref.: src/Transactions/TBuyTurboChargers.as (perform, onInit), src/Classes/TurboItem.as (onBuy)
+# Turbo charger packs from the market: the client adds the pack's count and takes its price up front.
+def buy_turbo_chargers(UID: str, item_name: str) -> None:
+    save = session(UID)
+    item = get_item_by_name(item_name)
+    if item is None or item.get("type") != "turbo":
+        print(" * buyTurboChargers: unknown pack {}".format(item_name))
+        return
+    if item.get("market") not in ("cash", "coins", None, ""):
+        # berry / world-currency packs: those currencies are not tracked server-side, so the pack cannot be
+        # paid for here and is not granted (the client's optimistic count is gone after a reload).
+        print(" * buyTurboChargers: {} is priced in {}, which is not tracked: not granted".format(item_name, item.get("market")))
+        return
+    if item.get("cost"):
+        engine.apply_coins_diff(save, -int(item["cost"]))
+    if item.get("cash"):
+        engine.apply_cash_diff(save, -int(item["cash"]))
+    count = int(item.get("count") or 0)
+    engine.apply_turbo_chargers_diff(save, count)
+    print(" * Bought {} turbo chargers ({}), now {}".format(count, item_name, save["userInfo"]["player"]["energyManager"]["turboChargers"]))
 
 # client ref.: src/Transactions/TEquipmentAction.as (onComplete), src/Engine/Transactions/Transaction.as (onAmfComplete)
 # The client unpacks the response by feeding every element back through its own onAmfComplete, so each

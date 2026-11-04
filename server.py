@@ -30,6 +30,9 @@ print(" [+] Loading items...")
 from items import load_items, PATCHED_ITEMS_AMF
 load_items()
 
+from market_patch import build_patched_files, PATCHED_MARKET_DATA, PATCHED_LOCALE_SWF
+build_patched_files()
+
 print(" [+] Loading quests...")
 from quests import load_quests
 load_quests()
@@ -286,6 +289,16 @@ def patched_items_opt():
     # items_opt.amf with faster early-game seeds (see items.py, FAST_GROW_*)
     return send_from_directory(os.path.dirname(PATCHED_ITEMS_AMF), os.path.basename(PATCHED_ITEMS_AMF), mimetype='text/xml')
 
+@app.route("/xml/gz/v855098/MarketData.xml.gz", methods=['GET'])
+def patched_market_data():
+    # MarketData.xml with an extra "Can Buy First" sort option (see market_patch.py)
+    return send_from_directory(os.path.dirname(PATCHED_MARKET_DATA), os.path.basename(PATCHED_MARKET_DATA), mimetype='text/xml')
+
+@app.route("/xml/gz/v855098/en_US.swf", methods=['GET'])
+def patched_locale():
+    # en_US.swf with the label for that sort option (see market_patch.py)
+    return send_from_directory(os.path.dirname(PATCHED_LOCALE_SWF), os.path.basename(PATCHED_LOCALE_SWF), mimetype='text/xml')
+
 @app.route("/xml/<path:path>", methods=['GET'])
 def xml(path):
     return send_from_directory(XML_DIR, path, mimetype='text/xml')
@@ -535,12 +548,16 @@ def flashservices_gateway():
 
         elif reqq.functionName == 'EquipmentWorldService.onUseEquipment':
             action = reqq['params'][0]
-            equipment = reqq['params'][1] # The vehicle itself ({id, key}) - nothing server-side is keyed off it
+            equipment = reqq['params'][1] # The vehicle itself ({id, key}); key sizes a turbo pass, see equipment_use
             plots = reqq['params'][2]
             item_name = reqq['params'][3]
             # The response is an Array (or, for 'combine', one per sub-action) built by commands.py - every
             # element is a mini envelope of its own, see commands.equipment_use.
-            response["data"] = commands.equipment_use(UID, action, plots, item_name, response["metadata"])
+            response["data"] = commands.equipment_use(UID, action, equipment, plots, item_name, response["metadata"])
+            resps.append(response)
+
+        elif reqq.functionName == 'FarmService.buyTurboChargers':
+            commands.buy_turbo_chargers(UID, reqq['params'][0])
             resps.append(response)
         
         elif reqq.functionName == 'WorldService.loadOwnWorld':
