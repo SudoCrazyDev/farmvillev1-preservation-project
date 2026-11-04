@@ -1,0 +1,4 @@
+node_modules/
+dist/
+plugins/*.dll
+config.json

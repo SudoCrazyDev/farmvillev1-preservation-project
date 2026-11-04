@@ -1,0 +1,17 @@
+{
+  "name": "farmvillage-client",
+  "productName": "FarmVille",
+  "version": "0.1.0",
+  "description": "Desktop client for the FarmVille preservation server, with Flash Player built in.",
+  "main": "main.js",
+  "private": true,
+  "license": "GPL-3.0",
+  "scripts": {
+    "start": "electron .",
+    "package": "node build.js"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "electron": "11.5.0"
+  }
+}

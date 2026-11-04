@@ -1,0 +1,18 @@
+services:
+  farmvillage:
+    build: .
+    image: farmvillage
+    container_name: farmvillage
+    ports:
+      - "5500:5500"
+    environment:
+      # URL the Flash client uses to reach the server. Change it when playing from another machine.
+      PUBLIC_URL: http://127.0.0.1:5500
+    volumes:
+      # Saves, cache and game assets, kept in ./data next to this file.
+      # WARC files placed in ./data/tmp/warc beforehand are used instead of downloading them.
+      - ./data:/data
+    # The asset check can ask to redownload a corrupt WARC file (docker attach farmvillage to answer).
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

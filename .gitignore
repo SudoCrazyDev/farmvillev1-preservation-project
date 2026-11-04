@@ -25,3 +25,4 @@ __pycache__/
 /xml/v295765-295762/
 assethash/**/*.amf
 assethash/**/*.json
+/data
