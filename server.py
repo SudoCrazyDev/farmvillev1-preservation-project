@@ -579,6 +579,17 @@ def flashservices_gateway():
             commands.update_feature_frequency_timestamp(UID, feature)
             resps.append(response)
 
+        # client ref.: src/Widgets/Windows/MOTD/FarmvilleAnniversaryV10BirthdayCard.as
+        # showGiftPopUp(giftsData) walks the data itself, one received gift per entry ({fromUID, message,
+        # itemName}). No neighbor ever sends a birthday gift here, so the list is always empty.
+        elif reqq.functionName == 'FVV10AnniversaryBirthdayCardService.getGiftForUser':
+            response["data"] = []
+            resps.append(response)
+
+        elif reqq.functionName == 'FVV10AnniversaryBirthdayCardService.setGiftForUser':
+            response["data"] = {}
+            resps.append(response)
+
         elif reqq.functionName == 'UserService.updateFeatureFrequencyWithBackoff':
             feature = reqq['params'][0]
             backoff_increments = reqq['params'][1]

@@ -1014,12 +1014,22 @@ def get_motd(UID: str, motd_seen_flag: str) -> dict:
 
     # MOTD bodies were server-authored campaign content (icon/text/title/buttonText are localization
     # keys picked per campaign) and none of it was recovered, so there is no MOTD to hand back for any
-    # flag. Every caller's onGetMOTD is null-safe (`if(Boolean(motdData) && motdData.hasOwnProperty(
+    # flag. Almost every caller's onGetMOTD is null-safe (`if(Boolean(motdData) && motdData.hasOwnProperty(
     # "motdSeenFlag"))` in MOTDMapTrigger/MotdOnCustomInit/FeatureQueuedIcon/..., `if(result)` in
     # SuperPlotManager/MessageBoardManager), so a null motdData is the clean "no MOTD for this flag":
     # the trigger stays detached and nothing pops. Inventing one instead put an untranslated popup
     # ("motd_default_message", straight through ZLocUtils.t_pk) in front of the player every time.
     # Answering with the motdData key still present keeps TGetMOTD off its error branches.
+    #
+    # client ref.: src/Managers/ItemMembershipManager.as (getMOTDs, onGetMOTD)
+    # The one exception: ItemMembershipManager.onGetMOTD reads motd["motdSeenFlag"] with no null check,
+    # so a null motdData threw Error #1009 inside the transaction callback. TransactionManager.
+    # onAmfBatchComplete has no try/catch: the throw aborted the batch with its remaining calls still in
+    # m_batchedAmfCalls, and onAmfBatchSend never sends again while that list is non-empty - every later
+    # harvest/plant/sell stayed client-side and was never saved. An empty object matches no feature, so
+    # s_MOTDs keeps the flag string and the membership window (shown only for an Object entry) stays shut.
+    if motd_seen_flag.startswith("MOTD_ITEM_MEMBERSHIP"):
+        return {"motdData": {}}
     return {"motdData": None}
 
 # client ref.: src/Widgets/Windows/ScratchCardWindow.as (loadItemIconWithScratchData, grantUserReward's
